@@ -17,7 +17,9 @@ final class FakeWaker: WakeScheduling {
 final class FakeRunner: CommandRunning {
     var commands: [[String]] = []
     var allowed = true
+    var delayNanos: UInt64 = 0
     func run(_ launchPath: String, _ arguments: [String]) async -> Int32 {
+        if self.delayNanos > 0 { try? await Task.sleep(nanoseconds: self.delayNanos) }
         self.commands.append(arguments)
         return self.allowed ? 0 : 1
     }
@@ -382,5 +384,21 @@ final class ExtraTests: XCTestCase {
         let get = try await send("GET", token: "secret-token")
         let origin = try await send("POST", token: "secret-token", extra: ["Origin": "https://evil.example"])
         XCTAssertEqual([noToken, badToken, ok, get, origin], [401, 401, 200, 405, 403])
+    }
+}
+
+final class WakeConcurrencyTests: XCTestCase {
+    func testConcurrentSyncsDoNotDuplicateEvents() async {
+        let runner = FakeRunner(); runner.delayNanos = 5_000_000
+        let ledger = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".json")
+        let now = date("2026-11-20T08:00")
+        let scheduler = PmsetSudoWakeScheduler(runner: runner, ledgerURL: ledger, now: { now })
+        let wakes = [date("2026-11-20T08:55"), date("2026-11-21T08:55")]
+        async let a = scheduler.sync(wakes: wakes)
+        async let b = scheduler.sync(wakes: wakes)
+        async let c = scheduler.sync(wakes: wakes)
+        _ = await (a, b, c)
+        let schedules = runner.commands.filter { $0.contains("wake") && !$0.contains("cancel") && !$0.contains("-l") }
+        XCTAssertEqual(schedules.count, 2)
     }
 }

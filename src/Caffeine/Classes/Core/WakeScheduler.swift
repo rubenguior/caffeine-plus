@@ -70,7 +70,21 @@ actor PmsetSudoWakeScheduler: WakeScheduling {
         return status == 0 ? .ready : .unavailable("sudo rule for pmset schedule is not installed")
     }
 
+    /// Syncs run one after another: actor reentrancy at `await` would otherwise let two syncs read the
+    /// same ledger and schedule the same wake twice.
+    private var tail: Task<WakeStatus, Never>?
+
     func sync(wakes: [Date]) async -> WakeStatus {
+        let previous = self.tail
+        let task = Task { () -> WakeStatus in
+            _ = await previous?.value
+            return await self.perform(wakes: wakes)
+        }
+        self.tail = task
+        return await task.value
+    }
+
+    private func perform(wakes: [Date]) async -> WakeStatus {
         let availability = await self.checkAvailability()
         guard availability == .ready else { return availability }
 
@@ -98,7 +112,7 @@ actor PmsetSudoWakeScheduler: WakeScheduling {
                 "/usr/bin/sudo",
                 ["-n", "/usr/bin/pmset", "schedule", "wake", date]
             )
-            if status == 0 { kept.insert(stamp) } else { failed = true }
+            if status == 0 { kept.insert(stamp); self.saveLedger(kept) } else { failed = true }
         }
         self.saveLedger(kept)
         return failed ? .unavailable("pmset schedule failed") : .ready
