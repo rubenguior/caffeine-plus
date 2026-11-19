@@ -76,3 +76,6 @@
 "Cancel" = "Cancelar";
 "Save" = "Guardar";
 "No scheduled windows. Add one or let Claude register them through the MCP server." = "No hay tramos programados. Añade uno o deja que Claude los registre mediante el servidor MCP.";
+"Open at login" = "Abrir al iniciar sesión";
+"Approval needed in System Settings → Login Items." = "Requiere aprobación en Ajustes del Sistema → Elementos de inicio.";
+"Open Login Items" = "Abrir Elementos de inicio";

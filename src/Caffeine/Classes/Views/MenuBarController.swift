@@ -257,7 +257,7 @@ class MenuBarController: NSObject {
             let window = NSWindow(contentViewController: hostingController)
             window.title = String(localized: "Welcome to Caffeine")
             window.styleMask = [.titled, .closable]
-            window.setContentSize(NSSize(width: 640, height: 420))
+            window.setContentSize(NSSize(width: 640, height: 470))
             window.center()
 
             self.preferencesWindow = window

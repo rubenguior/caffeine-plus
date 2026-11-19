@@ -14,6 +14,7 @@ struct PreferencesView: View {
     @AppStorage(PreferenceKeys.suppressLaunchMessage) private var suppressLaunchMessage = false
     @AppStorage(PreferenceKeys.deactivateOnManualSleep) private var deactivateOnManualSleep = false
     @AppStorage(PreferenceKeys.keepAppsActive) private var keepAppsActive = false
+    @StateObject private var loginItem = LaunchAtLoginController()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -34,6 +35,7 @@ struct PreferencesView: View {
                     )
                     .font(.system(size: 13))
                     .fixedSize(horizontal: false, vertical: true)
+        .onAppear { self.loginItem.refresh() }
 
                     Text("Right-click (or ⌃-click) the menu bar icon to show the Caffeine menu.")
                         .font(.system(size: 13, weight: .bold))
@@ -69,6 +71,29 @@ struct PreferencesView: View {
 
             // Checkboxes
             VStack(alignment: .leading, spacing: 8) {
+                Toggle("Open at login", isOn: Binding(
+                    get: { self.loginItem.isEnabled },
+                    set: { self.loginItem.setEnabled($0) }
+                ))
+                .font(.system(size: 13))
+                .accessibilityIdentifier("PreferencesView.openAtLoginToggle")
+
+                if self.loginItem.status == .requiresApproval {
+                    HStack {
+                        Text("Approval needed in System Settings → Login Items.")
+                        Button("Open Login Items") { self.loginItem.openLoginItemsSettings() }
+                    }
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .padding(.leading, 20)
+                }
+                if let error = self.loginItem.errorMessage {
+                    Text(error)
+                        .font(.system(size: 11))
+                        .foregroundColor(.red)
+                        .padding(.leading, 20)
+                }
+
                 Toggle("Activate when starting Caffeine", isOn: self.$activateAtLaunch)
                     .font(.system(size: 13))
                     .accessibilityIdentifier("PreferencesView.activateAtLaunchToggle")

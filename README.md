@@ -7,6 +7,7 @@ Caffeine Plus is a fork of [Caffeine](https://github.com/domzilla/Caffeine) (MIT
 - **Schedules window** (right-click the cup → *Schedules…*): upcoming windows, state (pending, in progress, finished, skipped, interrupted), skip/disable/delete, and wake-scheduling warnings.
 - **Local MCP server**: `http://127.0.0.1:47821/mcp` (loopback only, bearer token in `~/Library/Application Support/Caffeine Plus/mcp-token`). Tools: `list_windows`, `upsert_window` (idempotent by `id`), `delete_window`, `get_status`.
 - **Wake and sleep control**: wakes the Mac `lead_minutes` before a window (`pmset schedule wake`), holds a sleep assertion until it ends and then releases it, handling overlapping windows, sleeps, clock changes and relaunches.
+- **Open at login** (Preferences): registers the app as a login item. It starts the app at login only; it does not reopen it when the Mac wakes from sleep, so keep Caffeine Plus open for scheduled wakes.
 - Coexists with Caffeine: different bundle id (`net.rubenguior.caffeineplus`), name and preferences; no auto-update.
 
 ## Register the MCP server in Claude Code

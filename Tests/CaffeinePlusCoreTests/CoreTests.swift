@@ -402,3 +402,43 @@ final class WakeConcurrencyTests: XCTestCase {
         XCTAssertEqual(schedules.count, 2)
     }
 }
+
+final class FakeLoginItem: LoginItemService {
+    var status: LoginItemStatus = .disabled
+    var failOnRegister = false
+    var needsApproval = false
+    struct Boom: LocalizedError { var errorDescription: String? { "boom" } }
+    func register() throws {
+        if self.failOnRegister { throw Boom() }
+        self.status = self.needsApproval ? .requiresApproval : .enabled
+    }
+    func unregister() throws { self.status = .disabled }
+}
+
+@MainActor
+final class LaunchAtLoginTests: XCTestCase {
+    func testEnableDisable() {
+        let item = FakeLoginItem()
+        let c = LaunchAtLoginController(service: item)
+        XCTAssertFalse(c.isEnabled)
+        c.setEnabled(true); XCTAssertTrue(c.isEnabled)
+        c.setEnabled(false); XCTAssertFalse(c.isEnabled)
+    }
+
+    func testFailureKeepsDisabledAndReportsError() {
+        let item = FakeLoginItem(); item.failOnRegister = true
+        let c = LaunchAtLoginController(service: item)
+        c.setEnabled(true)
+        XCTAssertFalse(c.isEnabled)
+        XCTAssertEqual(c.errorMessage, "boom")
+    }
+
+    func testApprovalPendingAndExternalChange() {
+        let item = FakeLoginItem(); item.needsApproval = true
+        let c = LaunchAtLoginController(service: item)
+        c.setEnabled(true)
+        XCTAssertEqual(c.status, .requiresApproval)
+        item.status = .enabled; c.refresh(); XCTAssertTrue(c.isEnabled)
+        item.status = .disabled; c.refresh(); XCTAssertFalse(c.isEnabled) // removed from System Settings
+    }
+}
