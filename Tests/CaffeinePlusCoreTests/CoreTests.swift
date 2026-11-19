@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import CaffeinePlusCore
 
@@ -270,5 +271,116 @@ final class DraftTests: XCTestCase {
         try store.upsert(draft.makeWindow())
         XCTAssertEqual(store.windows.count, 1)
         XCTAssertEqual(store.windows[0].start, date("2026-11-20T10:00"))
+    }
+}
+
+@MainActor
+final class ExtraTests: XCTestCase {
+    func store() -> ScheduleStore {
+        ScheduleStore(fileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString).appendingPathComponent("s.json"))
+    }
+
+    func testDisabledWindowHasNoOccurrences() {
+        var w = window("a", start: date("2026-11-20T09:00"))
+        w.enabled = false
+        XCTAssertTrue(ScheduleEngine.occurrences(of: w, from: date("2026-11-20T00:00"), to: date("2026-11-21T00:00")).isEmpty)
+    }
+
+    func testOneOffOutsideRangeIsExcluded() {
+        let w = window("a", start: date("2026-11-20T09:00"))
+        XCTAssertTrue(ScheduleEngine.occurrences(of: w, from: date("2026-11-21T00:00"), to: date("2026-11-22T00:00")).isEmpty)
+    }
+
+    func testStoreDeleteAndSetEnabled() throws {
+        let s = store()
+        try s.upsert(window("a", start: date("2026-11-20T09:00")))
+        try s.setEnabled(id: "a", enabled: false)
+        XCTAssertEqual(s.window(id: "a")?.enabled, false)
+        XCTAssertTrue(try s.delete(id: "a"))
+        XCTAssertFalse(try s.delete(id: "a"))
+    }
+
+    func testInterruptedStateWhenSleepSpansTheEnd() throws {
+        var now = date("2026-11-20T09:10")
+        let s = store()
+        try s.upsert(window("a", start: date("2026-11-20T09:00")))
+        let power = PowerController(store: s, assertion: FakeAssertion(), waker: FakeWaker(),
+                                    clock: { now }, observeSystem: true)
+        power.reconcile()
+        NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.willSleepNotification, object: nil)
+        let expectation = XCTestExpectation(description: "willSleep handled")
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            now = date("2026-11-20T11:00"); power.reconcile()
+            XCTAssertEqual(power.upcoming.first?.state, .interrupted)
+            power.stop()
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 2)
+    }
+
+    func testRouterErrors() {
+        let s = store()
+        let power = PowerController(store: s, assertion: FakeAssertion(), waker: FakeWaker(), observeSystem: false)
+        let r = MCPRouter(store: s, power: power)
+        func call(_ args: [String: Any], tool: String = "upsert_window") -> Bool {
+            let body = try! JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": ["name": tool, "arguments": args]])
+            let res = try! JSONSerialization.jsonObject(with: r.handle(body)!) as! [String: Any]
+            return (res["result"] as! [String: Any])["isError"] as! Bool
+        }
+        XCTAssertTrue(call(["id": "x", "start": "mañana", "duration_minutes": 5]))
+        XCTAssertTrue(call(["id": "x", "start": "2026-12-01T09:00", "duration_minutes": 5, "timezone": "Mars/Base"]))
+        XCTAssertTrue(call(["id": "x", "start": "2026-12-01T09:00", "duration_minutes": 5,
+                            "recurrence": ["type": "weekly", "days": ["funday"]]]))
+        XCTAssertTrue(call([:], tool: "nope"))
+        XCTAssertTrue(s.windows.isEmpty)
+        XCTAssertFalse(call(["id": "x", "start": "2026-12-01T09:00:00+01:00", "duration_minutes": 5]))
+        XCTAssertFalse(call(["id": "x", "title": "Nuevo título", "start": "2026-12-01T10:00", "duration_minutes": 5]))
+        XCTAssertEqual(s.windows.first?.title, "Nuevo título")
+    }
+
+    func testRouterRejectsGarbageAndUnknownMethod() {
+        let s = store()
+        let power = PowerController(store: s, assertion: FakeAssertion(), waker: FakeWaker(), observeSystem: false)
+        let r = MCPRouter(store: s, power: power)
+        let garbage = try! JSONSerialization.jsonObject(with: r.handle(Data("no json".utf8))!) as! [String: Any]
+        XCTAssertEqual((garbage["error"] as! [String: Any])["code"] as? Int, -32700)
+        let body = try! JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": 9, "method": "bogus"])
+        let res = try! JSONSerialization.jsonObject(with: r.handle(body)!) as! [String: Any]
+        XCTAssertEqual((res["error"] as! [String: Any])["code"] as? Int, -32601)
+    }
+
+    func testTokenFileIsCreatedPrivateAndStable() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("tok")
+        let first = MCPHTTPServer.loadOrCreateToken(at: url)
+        XCTAssertGreaterThanOrEqual(first.count, 32)
+        XCTAssertEqual(MCPHTTPServer.loadOrCreateToken(at: url), first)
+        let perms = try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int
+        XCTAssertEqual(perms, 0o600)
+    }
+
+    func testHTTPServerEndToEnd() async throws {
+        let server = MCPHTTPServer(port: 47990, token: "secret-token") { body in Data("{\"echo\":true}".utf8) }
+        try server.start()
+        defer { server.stop() }
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        func send(_ method: String, token: String?, extra: [String: String] = [:]) async throws -> Int {
+            var req = URLRequest(url: URL(string: "http://127.0.0.1:47990/mcp")!)
+            req.httpMethod = method
+            if method == "POST" { req.httpBody = Data("{}".utf8) }
+            if let token { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+            for (k, v) in extra { req.setValue(v, forHTTPHeaderField: k) }
+            let (_, response) = try await URLSession.shared.data(for: req)
+            return (response as! HTTPURLResponse).statusCode
+        }
+        let noToken = try await send("POST", token: nil)
+        let badToken = try await send("POST", token: "wrong")
+        let ok = try await send("POST", token: "secret-token")
+        let get = try await send("GET", token: "secret-token")
+        let origin = try await send("POST", token: "secret-token", extra: ["Origin": "https://evil.example"])
+        XCTAssertEqual([noToken, badToken, ok, get, origin], [401, 401, 200, 405, 403])
     }
 }
