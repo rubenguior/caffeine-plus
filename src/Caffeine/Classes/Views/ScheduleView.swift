@@ -11,18 +11,28 @@ struct ScheduleView: View {
     let mcpURL: String
     let tokenPath: String
     @State private var message: String?
+    @State private var editing: WindowDraft?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             self.warningBanner
-            if self.power.upcoming.isEmpty {
-                Text("No scheduled windows. Claude can register them through the MCP server.")
+            HStack {
+                Spacer()
+                Button {
+                    self.editing = WindowDraft(newAt: Date())
+                } label: {
+                    Label("Add window", systemImage: "plus")
+                }
+                .accessibilityIdentifier("ScheduleView.addButton")
+            }
+            if self.store.windows.isEmpty {
+                Text("No scheduled windows. Add one or let Claude register them through the MCP server.")
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityIdentifier("ScheduleView.emptyLabel")
             } else {
-                List(self.power.upcoming) { info in
-                    self.row(info)
+                List(self.store.windows) { window in
+                    self.row(window)
                 }
                 .accessibilityIdentifier("ScheduleView.list")
             }
@@ -31,6 +41,12 @@ struct ScheduleView: View {
         .padding()
         .frame(minWidth: 520, minHeight: 360)
         .onAppear { self.power.refreshWakeAvailability() }
+        .sheet(item: self.$editing) { draft in
+            ScheduleEditorView(draft: draft) { window in
+                try self.store.upsert(window)
+                self.power.reconcile()
+            }
+        }
     }
 
     @ViewBuilder
@@ -61,32 +77,39 @@ struct ScheduleView: View {
         }
     }
 
-    private func row(_ info: OccurrenceInfo) -> some View {
-        let occ = info.occurrence
-        let enabled = self.store.window(id: occ.windowID)?.enabled ?? false
+    private func row(_ window: ScheduleWindow) -> some View {
+        let next = self.power.upcoming.first { $0.occurrence.windowID == window.id }
         return HStack {
             VStack(alignment: .leading) {
-                Text(occ.title).font(.headline)
-                Text("\(occ.start.formatted(date: .abbreviated, time: .shortened)) – \(occ.end.formatted(date: .omitted, time: .shortened))")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                Text(window.title).font(.headline)
+                if let occ = next?.occurrence {
+                    Text("\(occ.start.formatted(date: .abbreviated, time: .shortened)) – \(occ.end.formatted(date: .omitted, time: .shortened))")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("\(window.start.formatted(date: .abbreviated, time: .shortened)) · \(window.durationMinutes) min")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
             }
             Spacer()
-            Text(Self.label(info.state)).foregroundStyle(.secondary)
-            if info.state == .pending || info.state == .active {
-                Button("Skip") { self.power.skip(occurrenceID: info.id) }
-                    .accessibilityLabel(Text("Skip \(occ.title)"))
+            if let next { Text(Self.label(next.state)).foregroundStyle(.secondary) }
+            if let next, next.state == .pending || next.state == .active {
+                Button("Skip") { self.power.skip(occurrenceID: next.id) }
+                    .accessibilityLabel(Text("Skip \(window.title)"))
             }
+            Button("Edit") { self.editing = WindowDraft(window) }
+                .accessibilityLabel(Text("Edit \(window.title)"))
             Toggle("Enabled", isOn: Binding(
-                get: { enabled },
-                set: { try? self.store.setEnabled(id: occ.windowID, enabled: $0) }
+                get: { window.enabled },
+                set: { try? self.store.setEnabled(id: window.id, enabled: $0) }
             ))
             .labelsHidden()
-            .accessibilityLabel(Text("Enabled: \(occ.title)"))
+            .accessibilityLabel(Text("Enabled: \(window.title)"))
             Button(role: .destructive) {
-                _ = try? self.store.delete(id: occ.windowID)
+                _ = try? self.store.delete(id: window.id)
             } label: { Image(systemName: "trash") }
-                .accessibilityLabel(Text("Delete \(occ.title)"))
+                .accessibilityLabel(Text("Delete \(window.title)"))
         }
         .accessibilityElement(children: .contain)
     }

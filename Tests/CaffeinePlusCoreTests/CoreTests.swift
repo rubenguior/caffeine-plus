@@ -237,3 +237,38 @@ final class MCPTests: XCTestCase {
         XCTAssertFalse(MCPHTTPServer.isLoopbackHost("evil.com"))
     }
 }
+
+@MainActor
+final class DraftTests: XCTestCase {
+    func testNewDraftIsValidAndRoundTrips() throws {
+        var draft = WindowDraft(newAt: date("2026-11-20T08:07"))
+        XCTAssertEqual(draft.start, date("2026-11-20T08:30"))
+        draft.title = "  Informe "
+        draft.kind = .weekly
+        draft.days = [.thu, .mon]
+        let window = try draft.makeWindow()
+        XCTAssertEqual(window.title, "Informe")
+        XCTAssertEqual(window.recurrence.days, [.mon, .thu])
+        XCTAssertEqual(WindowDraft(window).id, draft.id)
+        XCTAssertFalse(WindowDraft(window).isNew)
+    }
+
+    func testInvalidDraftsRejected() {
+        var draft = WindowDraft(newAt: Date())
+        draft.durationMinutes = 0
+        XCTAssertThrowsError(try draft.makeWindow())
+        draft.durationMinutes = 10; draft.kind = .weekly; draft.days = []
+        XCTAssertThrowsError(try draft.makeWindow())
+    }
+
+    func testEditedWindowReplacesOriginal() throws {
+        let store = ScheduleStore(fileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString).appendingPathComponent("s.json"))
+        try store.upsert(window("a", start: date("2026-11-20T09:00")))
+        var draft = WindowDraft(store.windows[0])
+        draft.start = date("2026-11-20T10:00")
+        try store.upsert(draft.makeWindow())
+        XCTAssertEqual(store.windows.count, 1)
+        XCTAssertEqual(store.windows[0].start, date("2026-11-20T10:00"))
+    }
+}
