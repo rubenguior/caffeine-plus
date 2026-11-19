@@ -18,8 +18,6 @@ Sparkle was removed in Caffeine Plus (no auto-update).
 ## Guides
 The original local guides (`~/Agents/...`) are not available; follow the existing code style (`.swiftformat`), Swift/SwiftUI best practices and accessibility (labels, hints, keyboard).
 
-Changes are specified with OpenSpec (`openspec/`).
-
 ## Build Commands
 ```bash
 # Build
