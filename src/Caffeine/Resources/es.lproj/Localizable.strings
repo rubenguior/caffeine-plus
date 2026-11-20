@@ -79,3 +79,4 @@
 "Open at login" = "Abrir al iniciar sesión";
 "Approval needed in System Settings → Login Items." = "Requiere aprobación en Ajustes del Sistema → Elementos de inicio.";
 "Open Login Items" = "Abrir Elementos de inicio";
+"Schedule: %@ until %@" = "Horario: %@ hasta las %@";

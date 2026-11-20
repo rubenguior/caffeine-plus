@@ -63,6 +63,12 @@ class MenuBarController: NSObject {
             }
             .store(in: &self.cancellables)
 
+        self.power.$upcoming
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.updateIcon() }
+            }
+            .store(in: &self.cancellables)
+
         self.viewModel.$showPreferences
             .sink { [weak self] show in
                 if show {
@@ -75,12 +81,13 @@ class MenuBarController: NSObject {
     private func updateIcon() {
         guard let button = statusItem?.button else { return }
 
-        let imageName = self.viewModel.isActive ? "active" : "inactive"
+        let awake = self.viewModel.isActive || self.power.activeOccurrence != nil
+        let imageName = awake ? "active" : "inactive"
         if let image = NSImage(named: NSImage.Name(imageName)) {
             button.image = image
         }
 
-        if self.viewModel.isActive {
+        if awake {
             button.setAccessibilityValue(NSLocalizedString(
                 "Active, sleep prevented",
                 tableName: "Accessibility",
@@ -108,6 +115,20 @@ class MenuBarController: NSObject {
 
     private func showContextMenu() {
         let menu = NSMenu()
+
+        // Schedule window currently keeping the Mac awake
+        if let occurrence = self.power.activeOccurrence {
+            let text = String(
+                format: String(localized: "Schedule: %@ until %@"),
+                occurrence.title,
+                occurrence.end.formatted(date: .omitted, time: .shortened)
+            )
+            let item = NSMenuItem(title: text, action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            item.setAccessibilityIdentifier("MenuBarController.scheduleStatusMenuItem")
+            menu.addItem(item)
+            menu.addItem(NSMenuItem.separator())
+        }
 
         // Status info (only show if active)
         if self.viewModel.isActive, let timeString = viewModel.formattedTimeRemaining() {

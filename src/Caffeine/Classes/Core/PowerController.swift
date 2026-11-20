@@ -64,6 +64,11 @@ final class PowerController: ObservableObject {
     @Published private(set) var upcoming: [OccurrenceInfo] = []
     @Published private(set) var wakeStatus: WakeStatus = .unknown
 
+    /// The window currently holding the Mac awake, if any.
+    var activeOccurrence: Occurrence? {
+        self.upcoming.first { $0.state == .active }?.occurrence
+    }
+
     private let store: ScheduleStore
     private let assertion: PowerAssertionHandling
     private let waker: WakeScheduling
